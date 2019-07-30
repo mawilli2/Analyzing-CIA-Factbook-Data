@@ -1,0 +1,165 @@
+---
+title: "Analyzing CIA Factbook Data"
+author: "Malik Williams"
+date: "July 27, 2019"
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+For this project we will be exploring CIA World Factbook data.
+
+It contains a compilation of statistics over the countries in 2015. We will be looking at data from the facts table. Below is a table detailing each variable in the facts table. 
+
+## About the Data
+
+The CIA Factbook contains a compilation of statistics over the countries. We will be looking at data from the facts table. Below is a table detailing each variable in the facts table. 
+
+|Column Name|Description|
+|:------:|:-------|
+| `name` | The name of the country |
+| `area` | The total land and sea area of the country |
+|`area_land` | The country's land area in square kilometers |
+|`area_water` | The country's water area in square kilometers |
+| `population` | The country's population |
+| `population_growth` | The country's population growth as a percentage |
+| `birth_rate` | The country's birth rate, or the number of births a year per 1,000 people |
+| `death_rate` | The country's death rate, or the number of death a year per 1,000 people |
+|`migration_rate` | The country's migration rate, the ratio between immigrants and emigrants throughout the year
+
+Now let's take a look at the first five rows of the facts table.
+
+```{r}
+library(RSQLite)
+library(DBI)
+library(tidyr)
+library(ggplot2)
+```
+
+```{r}
+conn <- dbConnect(SQLite(), "factbook.db")
+tables <- dbListTables(conn)
+query <- ("SELECT * FROM facts")
+result <- dbSendQuery(conn, query)
+first_5_facts <- dbFetch(result, n = 5)
+first_5_facts
+dbClearResult(result)
+```
+
+Now let's take a look at the population data by finding the extrema (minimum and maximum) values of the `population` and `population_growth` columns.
+
+```{r}
+query <- ("SELECT MIN(population), MAX(population), MIN(population_growth), MAX(population_growth) FROM facts")
+result <- dbSendQuery(conn, query)
+pop_extrema <- dbFetch(result)
+pop_extrema
+dbClearResult(result)
+```
+That doesn't seem right. It says the minimum population of a country is 0, and the maximum population of a country is greater than 7 billion. We know that the entire world's population is roughly 7.2 billion so this can't be right. 
+
+Below, we will find which countries gave those strange values.
+
+```{r}
+query <- ("SELECT name, population, population_growth FROM facts WHERE population = 0")
+result <- dbSendQuery(conn, query)
+country_with_0_pop <- dbFetch(result)
+country_with_0_pop
+dbClearResult(result)
+```
+
+```{r}
+query <- ("SELECT name, population, population_growth FROM facts WHERE population = 7256490011")
+result <- dbSendQuery(conn, query)
+country_with_billion_pop = dbFetch(result)
+country_with_billion_pop
+dbClearResult(result)
+```
+The country with a population of 0 is Anarctica, and the observation with 7.2 billion is the World. This explains why there are such extrema maximum and minimum values. No humans permanently live on Antarctica, so its population of 0 makes sense. 
+
+Although these two observations are correct, they are also outliers that will skew our results. Therefore, we will remove the outliers before creating visualizations.
+
+```{r}
+query <- "SELECT population, population_growth, birth_rate, death_rate FROM facts WHERE (population != (SELECT MAX(population) FROM facts) AND population != (SELECT MIN(population) FROM facts))"
+no_outliers <- dbGetQuery(conn, query)
+```
+
+## Creating Visualizations
+
+Now that we have gotten rid of the outliers, let's generate histograms for the `birth_rate`, `death_rate`, `population`, and `population_growth`. This will give us insights on how populations change.
+
+```{r}
+# Birth Rate
+ggplot(data = no_outliers) +
+  aes(x = birth_rate) +
+  geom_histogram(bins = 30, color = "black", fill = "forestgreen") +
+  labs(x = "Birth Rate", y = "Count", title = "Frequency of Birth Rate")
+
+# Death Rate
+ggplot(data = no_outliers) +
+  aes(x = death_rate) +
+  geom_histogram(bins = 30, color = "black", fill = "firebrick") +
+  labs(x = "Death Rate", y = "Count", title = "Frequency of Death Rate")
+
+# Population
+ggplot(data = no_outliers) +
+  aes(x = population) +
+  geom_histogram(bins = 15, color = "black", fill = "gold") +
+  labs(x = "Population", y = "Count", title = "Frequency of Population")
+
+# Population Growth
+ggplot(data = no_outliers) +
+  aes(x = population_growth) +
+  geom_histogram(bins = 30, color = "black", fill = "dodgerblue") +
+  labs(x = "Population Growth", y = "Count", title = "Frequency of Population Growth")
+
+```
+The birth rate, population, and population growth histograms are all right skewed. This means that their median values are greater than the means. The death rate is close to being normally distributed. 
+
+## Finding the Countries With the Highest Population Density
+
+Now that we have gotten an idea of the distributions of the population-related variables, we want to find the most population dense countries. The population density is a measurement of population per unit area or unit volume. In other words, it is the `population` divided by the `area`.
+
+```{r}
+query <- "SELECT name, population, population_growth, birth_rate, death_rate, (CAST(population as float)/CAST(area as float)) as population_density FROM facts ORDER BY population_density DESC"
+pop_density <- dbGetQuery(conn, query)
+top <- head(pop_density, 5)
+top
+```
+```{r}
+ggplot(data = top) +
+  aes(x = reorder(name, -population_density), y = population_density, fill = name) +
+  geom_bar(stat = "identity") +
+  labs(x = "Country", y = "Population Desnsity", title = "Top 5 Population-Dense Countries") 
+```
+From this data, we see that the most population-dense countries are Macau, Monaco, Singapore, Hong Kong, and Gaza Strip. If we compare our findings with what is listed on [Wikipedia](https://en.wikipedia.org/wiki/Population_density), we see that the top 4 countries match, but on Wikipedia, the 5th country is Gibraltar instead of the Gaza Strip.
+
+## The Relation Between Population Density and Birth Rate/Death Rate
+
+Now that we have explored population density a bit, let's see if it has any discernable correlations with birth rate or death rate.
+
+
+```{r}
+ggplot(data = pop_density) +
+  aes(x = population_density, y = birth_rate, color = birth_rate) +
+  geom_point() +
+  scale_color_gradient(low = "red2", high = "forestgreen") +
+  labs(x = "Population Density", y = "Birth Rate", title = "Birth Rate vs. Population Density")
+
+ggplot(data = pop_density) +
+  aes(x = population_density, y = death_rate, color = death_rate) +
+  geom_point() +
+  scale_color_gradient(low = "forestgreen", high = "red2") +
+  labs(x = "Population Density", y = "Death Rate", title = "Death Rate vs. Population Density")
+
+```
+From this, there appears to be a slight negative correlation between Birth Rate and Population Density. This means that as population density increases, birth rates start to decrease. This makes sense because in more population dense, people are less likely to want have children.
+There does not seem to be any correlation between death rate and population density.
+
+## Conclusion
+
+Looking at the CIA Factbook Data seems to indicate that having a large population density correlates with having a smaller birth rate. Death rate seems to be unaffected by population density. This is probably because medicine has advanced to accomodate large populations. 
+
