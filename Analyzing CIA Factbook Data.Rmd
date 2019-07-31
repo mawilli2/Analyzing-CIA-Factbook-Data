@@ -149,6 +149,7 @@ ggplot(data = pop_density) +
   scale_color_gradient(low = "red2", high = "forestgreen") +
   labs(x = "Population Density", y = "Birth Rate", title = "Birth Rate vs. Population Density")
 
+
 ggplot(data = pop_density) +
   aes(x = population_density, y = death_rate, color = death_rate) +
   geom_point() +
@@ -156,8 +157,13 @@ ggplot(data = pop_density) +
   labs(x = "Population Density", y = "Death Rate", title = "Death Rate vs. Population Density")
 
 ```
-From this, there appears to be a slight negative correlation between Birth Rate and Population Density. This means that as population density increases, birth rates start to decrease. This makes sense because in more population dense, people are less likely to want have children.
-There does not seem to be any correlation between death rate and population density.
+```{r}
+cor(pop_density$birth_rate, pop_density$population_density, use = "pairwise.complete.obs")
+cor(pop_density$death_rate, pop_density$population_density, use = "pairwise.complete.obs")
+```
+
+From these scatterplots and correlation coefficients, there appears to be a slight negative correlation between Birth Rate and Population Density. This means that as population density increases, birth rates start to decrease. This makes sense because in more population dense, people are less likely to want have children.
+There is an even smaller negative correlation between death rate and population density.
 
 ## Conclusion
 
